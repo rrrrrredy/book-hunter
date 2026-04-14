@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
 图书猎手 v2 - 主入口
-整合 Z-Library + Anna's Archive，带降级链（Camoufox → Jina → Web Search）
+整合 Z-Library + Anna's Archive，带降级链（Camoufox → Jina → Exa/Web Search）
+
+Tool priority for search fallback:
+  mcporter/Exa (agent-reach ecosystem) → Jina Search API (free, no key)
 """
 
 import sys
 import re
 import json
+import shutil
 import argparse
 import subprocess
 import requests
@@ -23,6 +27,9 @@ PROXY = {}
 _proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy")
 if _proxy_url:
     PROXY = {"http": _proxy_url, "https": _proxy_url}
+
+# Check if agent-reach tools are available
+HAS_MCPORTER = shutil.which("mcporter") is not None
 
 
 class BookHunter:
@@ -66,10 +73,10 @@ class BookHunter:
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, isbn=isbn, limit=limit)
 
-        # 3. 两站都没结果 → Exa 终极降级
+        # 3. 两站都没结果 → Exa/Web Search 终极降级
         if not results["zlib_results"] and not results["anna_results"]:
-            print("[Exa] 两站无结果，Exa 降级搜索...", file=sys.stderr)
-            results["web_results"] = self._search_web(query, limit)
+            print("[降级搜索] 两站无结果，启动 Exa/Web Search...", file=sys.stderr)
+            results["exa_results"] = self._search_exa(query, limit)
 
         all_books = (results["zlib_results"] + results["anna_results"]
                      + results["exa_results"])
@@ -77,11 +84,44 @@ class BookHunter:
 
         return results
 
-    def _search_web(self, query: str, limit: int) -> List[Dict]:
-        """Web search as final fallback using Jina Search API (free, no API key needed)."""
+    def _search_exa(self, query: str, limit: int) -> List[Dict]:
+        """Exa/Web 搜索作为终极降级
+        Primary: mcporter + Exa (agent-reach ecosystem)
+        Fallback: Jina Search API (free, no API key)
+        """
+        exa_query = f"{query} epub pdf download site:annas-archive.org OR site:z-library.sk"
+
+        # 1. Primary: mcporter + Exa
+        if HAS_MCPORTER:
+            try:
+                result = subprocess.run(
+                    ["mcporter", "call",
+                     f'exa.web_search_exa(query: "{exa_query}", numResults: {limit})'],
+                    capture_output=True, text=True, timeout=20
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    data = json.loads(result.stdout)
+                    items = data if isinstance(data, list) else data.get("results", [])
+                    results = [
+                        {
+                            "source": "Exa搜索",
+                            "title": item.get("title", ""),
+                            "author": "Unknown",
+                            "format": self._guess_format(item.get("url", "")),
+                            "size": "Unknown",
+                            "language": "Unknown",
+                            "url": item.get("url", ""),
+                        }
+                        for item in items if item.get("url")
+                    ]
+                    if results:
+                        return results
+            except Exception as e:
+                print(f"[⚠️ Exa] 搜索失败: {e}", file=sys.stderr)
+
+        # 2. Fallback: Jina Search API
         try:
-            search_query = f"{query} epub pdf download site:annas-archive.org OR site:z-library.sk"
-            jina_url = f"https://s.jina.ai/{requests.utils.quote(search_query)}"
+            jina_url = f"https://s.jina.ai/{requests.utils.quote(exa_query)}"
             proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
             proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 

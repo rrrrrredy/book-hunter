@@ -79,7 +79,7 @@ Anna's Archive（requests + 上游代理，多域名轮询）
     ↓ 反爬 / 被封
 Anna's Archive（Jina Reader r.jina.ai 绕过反爬）
     ↓ 两站均失败
-Web search fallback (optional, requires exa CLI or similar)
+mcporter/Exa (agent-reach ecosystem) → Jina Search API fallback
     ↓ 无结果
 提示用户直接访问 + 建议关键词调整
 ```
@@ -126,7 +126,7 @@ List style, IM-friendly:
 pip install requests beautifulsoup4 lxml camoufox
 ```
 
-Web search fallback is optional — requires `exa` CLI or similar search tool.
+Web search fallback: **mcporter/Exa** (agent-reach ecosystem, best results) → **Jina Search API** (free, no key). Install: `pip install agent-reach && agent-reach install --env=auto --safe` then `npm i -g mcporter && mcporter config add exa https://mcp.exa.ai/mcp`
 
 ---
 
