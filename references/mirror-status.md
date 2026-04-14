@@ -33,6 +33,6 @@
 
 ## Exa 兜底搜索
 
-Web search fallback (optional): Use `exa` CLI or any search tool to find book links
+通过 mcporter 调用：`mcporter call exa.web_search_exa "site:z-library OR site:annas-archive <书名>"`
 
 Exa 返回结果是通用搜索，质量不保证，仅作最后兜底。
