@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 图书猎手 v2 - 主入口
-整合 Z-Library + Anna's Archive，带降级链（Camoufox → Jina → Exa）
+整合 Z-Library + Anna's Archive，带降级链（Camoufox → Jina → Web Search）
 """
 
 import sys
@@ -9,6 +9,7 @@ import re
 import json
 import argparse
 import subprocess
+import requests
 from typing import List, Dict, Optional
 
 # 确保同目录下的模块可以 import
@@ -68,7 +69,7 @@ class BookHunter:
         # 3. 两站都没结果 → Exa 终极降级
         if not results["zlib_results"] and not results["anna_results"]:
             print("[Exa] 两站无结果，Exa 降级搜索...", file=sys.stderr)
-            results["exa_results"] = self._search_exa(query, limit)
+            results["web_results"] = self._search_web(query, limit)
 
         all_books = (results["zlib_results"] + results["anna_results"]
                      + results["exa_results"])
@@ -76,32 +77,35 @@ class BookHunter:
 
         return results
 
-    def _search_exa(self, query: str, limit: int) -> List[Dict]:
-        """Web search as final fallback (requires 'exa' CLI or can be replaced with any search tool)"""
+    def _search_web(self, query: str, limit: int) -> List[Dict]:
+        """Web search as final fallback using Jina Search API (free, no API key needed)."""
         try:
-            exa_query = f"{query} epub pdf download site:annas-archive.org OR site:z-library.sk"
-            # Try exa CLI if available, otherwise skip
-            result = subprocess.run(
-                ["exa", "search", exa_query, "--num", str(limit)],
-                capture_output=True, text=True, timeout=20
+            search_query = f"{query} epub pdf download site:annas-archive.org OR site:z-library.sk"
+            jina_url = f"https://s.jina.ai/{requests.utils.quote(search_query)}"
+            proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY")
+            proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+
+            r = requests.get(
+                jina_url,
+                headers={"Accept": "application/json", "X-Retain-Images": "none"},
+                proxies=proxies, timeout=20
             )
-            if result.returncode == 0 and result.stdout.strip():
-                data = json.loads(result.stdout)
-                items = data if isinstance(data, list) else data.get("results", [])
-                return [
-                    {
-                        "source": "Web Search",
-                        "title": item.get("title", ""),
-                        "author": "Unknown",
-                        "format": self._guess_format(item.get("url", "")),
-                        "size": "Unknown",
-                        "language": "Unknown",
-                        "url": item.get("url", ""),
-                    }
-                    for item in items if item.get("url")
-                ]
+            data = r.json()
+            items = data.get("data", [])[:limit]
+            return [
+                {
+                    "source": "Web Search",
+                    "title": item.get("title", ""),
+                    "author": "Unknown",
+                    "format": self._guess_format(item.get("url", "")),
+                    "size": "Unknown",
+                    "language": "Unknown",
+                    "url": item.get("url", ""),
+                }
+                for item in items if item.get("url")
+            ]
         except Exception as e:
-            print(f"[⚠️ Exa] 搜索失败: {e}", file=sys.stderr)
+            print(f"[⚠️ Web search] Failed: {e}", file=sys.stderr)
         return []
 
     def _guess_format(self, url: str) -> str:
