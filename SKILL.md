@@ -1,10 +1,11 @@
 ---
 name: book-hunter
-description: "Search Z-Library and Anna's Archive for ebook download links. Supports title/author/ISBN search, format (epub/pdf/mobi) and language (zh/en) filtering, with 4-layer automatic fallback."
+version: 4.0.0
+description: "Search Z-Library and Anna's Archive for ebook download links. Supports title/author/ISBN search, format (epub/pdf/mobi) and language (zh/en) filtering, with 4-layer automatic fallback. Triggers: search books, find ebook, book search, search ebook, zlib, anna, ISBN search, find ebook download. Not for: purchasing physical books (use JD/Dangdang); internal document search; copyrighted content with available purchase options."
 tags: [book, ebook, zlibrary, annas-archive, search]
 ---
 
-# 图书猎手 V4
+# 图书猎手 4.0.0
 
 **一句话搜遍 Z-Library + Anna's Archive，真能用！** — 8镜像+Camoufox+Jina+Exa四层降级，不再空手而归。
 
@@ -180,7 +181,7 @@ Web search fallback: **mcporter/Exa** (agent-reach ecosystem, best results) → 
 
 ## Changelog
 
-### V4（2026-04-08）
+### 4.0.0（2026-04-08）
 - description 从多行 block scalar `>` 改为单行（符合 description 设计原则）
 - 新增 `tags`（[book, ebook, zlibrary, annas-archive, search]）
 - 同步 `scripts/`（book_hunter.py / anna_search.py / zlib_search.py）从安装版到 workspace 版
