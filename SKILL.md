@@ -119,6 +119,8 @@ List style, IM-friendly:
 - **Anna's Archive 域名**：annas-archive.org / .gs / .se 轮询
 - **Camoufox**: Auto-invoked when Z-Library blocks requests (pip install camoufox)
 
+> 镜像缓存格式、完整域名列表及 Exa 兜底机制详见 `references/mirror-status.md`。
+
 ---
 
 ## 依赖
