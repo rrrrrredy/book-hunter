@@ -23,13 +23,34 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from zlib_search import ZLibSearcher
 from anna_search import AnnaSearcher
 
+
+def _configure_stdio() -> None:
+    """Prefer UTF-8 output on Windows consoles that default to GBK."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+def _env_timeout(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+_configure_stdio()
+
 PROXY = {}
 _proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy")
 if _proxy_url:
     PROXY = {"http": _proxy_url, "https": _proxy_url}
 
 # Check if agent-reach tools are available
-HAS_MCPORTER = shutil.which("mcporter") is not None
+MCPORTER_CMD = shutil.which("mcporter")
+HAS_MCPORTER = MCPORTER_CMD is not None
+WEB_SEARCH_TIMEOUT = _env_timeout("BOOK_HUNTER_WEB_TIMEOUT", 8)
 
 
 class BookHunter:
@@ -37,6 +58,7 @@ class BookHunter:
     def __init__(self):
         self.zlib = ZLibSearcher()
         self.anna = AnnaSearcher()
+        self._exa_errors: list[str] = []
 
     # ------------------------------------------------------------------ #
     #  搜索
@@ -58,6 +80,7 @@ class BookHunter:
             "zlib_results": [],
             "anna_results": [],
             "exa_results": [],
+            "diagnostics": [],
             "total": 0,
         }
 
@@ -66,17 +89,21 @@ class BookHunter:
         results["zlib_results"] = self.zlib.search_with_filters(
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, limit=limit)
+        results["diagnostics"].extend(f"Z-Library: {msg}" for msg in self.zlib.last_errors[:4])
 
         # 2. Anna's Archive（含 Jina 降级）
         print(f"[Anna's Archive] 搜索: {query}...", file=sys.stderr)
         results["anna_results"] = self.anna.search_with_filters(
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, isbn=isbn, limit=limit)
+        results["diagnostics"].extend(f"Anna's Archive: {msg}" for msg in self.anna.last_errors[:4])
 
         # 3. 两站都没结果 → Exa/Web Search 终极降级
         if not results["zlib_results"] and not results["anna_results"]:
             print("[降级搜索] 两站无结果，启动 Exa/Web Search...", file=sys.stderr)
+            self._exa_errors = []
             results["exa_results"] = self._search_exa(query, limit)
+            results["diagnostics"].extend(f"Web fallback: {msg}" for msg in self._exa_errors[:3])
 
         all_books = (results["zlib_results"] + results["anna_results"]
                      + results["exa_results"])
@@ -89,15 +116,20 @@ class BookHunter:
         Primary: mcporter + Exa (agent-reach ecosystem)
         Fallback: Jina Search API (free, no API key)
         """
-        exa_query = f"{query} epub pdf download site:annas-archive.org OR site:z-library.sk"
+        exa_query = f"{query} epub pdf ebook metadata site:annas-archive.org OR site:z-library.sk"
 
         # 1. Primary: mcporter + Exa
-        if HAS_MCPORTER:
+        if HAS_MCPORTER and MCPORTER_CMD:
             try:
+                cmd = [
+                    MCPORTER_CMD,
+                    "call",
+                    f"exa.web_search_exa(query: {json.dumps(exa_query, ensure_ascii=False)}, numResults: {limit})",
+                ]
                 result = subprocess.run(
-                    ["mcporter", "call",
-                     f'exa.web_search_exa(query: "{exa_query}", numResults: {limit})'],
-                    capture_output=True, text=True, timeout=20
+                    cmd,
+                    capture_output=True, text=True, timeout=WEB_SEARCH_TIMEOUT,
+                    shell=False,
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     data = json.loads(result.stdout)
@@ -118,6 +150,9 @@ class BookHunter:
                         return results
             except Exception as e:
                 print(f"[⚠️ Exa] 搜索失败: {e}", file=sys.stderr)
+                self._exa_errors.append(f"mcporter/Exa failed: {e}")
+        else:
+            self._exa_errors.append("mcporter/Exa is not installed")
 
         # 2. Fallback: Jina Search API
         try:
@@ -128,7 +163,7 @@ class BookHunter:
             r = requests.get(
                 jina_url,
                 headers={"Accept": "application/json", "X-Retain-Images": "none"},
-                proxies=proxies, timeout=20
+                proxies=proxies, timeout=WEB_SEARCH_TIMEOUT
             )
             data = r.json()
             items = data.get("data", [])[:limit]
@@ -146,6 +181,7 @@ class BookHunter:
             ]
         except Exception as e:
             print(f"[⚠️ Web search] Failed: {e}", file=sys.stderr)
+            self._exa_errors.append(f"Jina Search failed: {e}")
         return []
 
     def _guess_format(self, url: str) -> str:
@@ -197,11 +233,16 @@ class BookHunter:
 
         if not all_books:
             lines.append("❌ 未找到相关图书")
+            diagnostics = [d for d in results.get("diagnostics", []) if d]
+            if diagnostics:
+                lines.append("状态：所有来源未返回可用结果；下列诊断更像网络/镜像/解析失败时，不代表图书一定不存在。")
+                for item in diagnostics[:6]:
+                    lines.append(f"• {item}")
             lines.append("")
             lines.append("建议：")
             lines.append("• 检查拼写，或尝试英文关键词")
             lines.append("• 搜书 --format epub --lang en 《书名》")
-            lines.append("• 直接访问 annas-archive.org（需代理）")
+            lines.append("• 直接访问 annas-archive.org 来源页（可能需要代理）")
             return "\n".join(lines)
 
         # 按来源分组输出
@@ -226,7 +267,7 @@ class BookHunter:
                 lines.append(f"   🔗 {url}")
             lines.append("")
 
-        lines.append("💡 点击链接前往站点，登录后下载")
+        lines.append("💡 点击链接查看来源页面；如需获取文件，请遵守站点规则和当地版权法律")
         lines.append("⚠️ 请遵守当地版权法规")
         return "\n".join(lines)
 

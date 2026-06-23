@@ -2,7 +2,7 @@
 """
 Anna's Archive 搜索模块 v2
 - 全量走上游代理
-- 直连失败改用 Jina Reader 绕过反爬
+- 直连失败改用 Jina Reader 文本代理
 - 支持 ISBN 精确搜索
 - 支持多备用域名
 """
@@ -19,6 +19,18 @@ PROXY = {}
 _proxy_url = os.environ.get("HTTP_PROXY") or os.environ.get("https_proxy")
 if _proxy_url:
     PROXY = {"http": _proxy_url, "https": _proxy_url}
+
+
+def _env_timeout(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+MIRROR_TIMEOUT = _env_timeout("BOOK_HUNTER_MIRROR_TIMEOUT", 2)
+SEARCH_TIMEOUT = _env_timeout("BOOK_HUNTER_SEARCH_TIMEOUT", 6)
+JINA_TIMEOUT = _env_timeout("BOOK_HUNTER_JINA_TIMEOUT", 8)
 
 ANNA_MIRRORS = [
     "https://annas-archive.org",
@@ -40,16 +52,20 @@ class AnnaSearcher:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
         self.working_mirror: Optional[str] = None
+        self.last_errors: list[str] = []
 
     def _find_mirror(self) -> Optional[str]:
         for mirror in ANNA_MIRRORS:
             try:
-                r = self.session.get(mirror, proxies=PROXY, timeout=8)
+                r = self.session.get(mirror, proxies=PROXY, timeout=MIRROR_TIMEOUT)
                 if r.status_code < 500:
                     self.working_mirror = mirror
                     return mirror
-            except Exception:
+                self.last_errors.append(f"{mirror}: HTTP {r.status_code}")
+            except Exception as e:
+                self.last_errors.append(f"{mirror}: {e}")
                 continue
+        self.last_errors.append("all configured Anna's Archive mirrors were unreachable")
         return None
 
     # ------------------------------------------------------------------ #
@@ -59,6 +75,7 @@ class AnnaSearcher:
     def search(self, query: str, limit: int = 10,
                isbn: Optional[str] = None) -> List[Dict]:
         """搜索图书，支持 ISBN 精确搜索"""
+        self.last_errors = []
         if isbn:
             q_param = f"isbn:{isbn}"
         else:
@@ -72,16 +89,18 @@ class AnnaSearcher:
         # 方案1: 直连（带代理）
         try:
             url = f"{mirror}/search?q={quote(q_param)}&content=book"
-            resp = self.session.get(url, proxies=PROXY, timeout=15)
+            resp = self.session.get(url, proxies=PROXY, timeout=SEARCH_TIMEOUT)
             if resp.status_code == 200:
                 results = self._parse_html(resp.text, mirror, limit)
                 if results:
                     return results
             print(f"[⚠️ Anna's Archive] HTTP {resp.status_code}，降级 Jina", file=sys.stderr)
+            self.last_errors.append(f"{mirror}/search returned HTTP {resp.status_code} or no parseable result")
         except Exception as e:
             print(f"[⚠️ Anna's Archive] 请求失败: {e}，降级 Jina", file=sys.stderr)
+            self.last_errors.append(f"{mirror}/search request failed: {e}")
 
-        # 方案2: Jina Reader 绕过反爬
+        # 方案2: Jina Reader 文本代理
         return self._search_via_jina(q_param, limit, mirror)
 
     # ------------------------------------------------------------------ #
@@ -93,13 +112,15 @@ class AnnaSearcher:
         base = mirror or ANNA_MIRRORS[0]
         jina_url = f"https://r.jina.ai/{base}/search?q={quote(query)}&content=book"
         try:
-            resp = self.session.get(jina_url, proxies=PROXY, timeout=20,
+            resp = self.session.get(jina_url, proxies=PROXY, timeout=JINA_TIMEOUT,
                                     headers={"Accept": "text/markdown"})
             if resp.status_code == 200 and resp.text.strip():
                 return self._parse_jina_markdown(resp.text, base, limit)
             print(f"[⚠️ Anna's Archive/Jina] HTTP {resp.status_code}", file=sys.stderr)
+            self.last_errors.append(f"Jina Reader returned HTTP {resp.status_code}")
         except Exception as e:
             print(f"[⚠️ Anna's Archive/Jina] 失败: {e}", file=sys.stderr)
+            self.last_errors.append(f"Jina Reader failed: {e}")
         return []
 
     # ------------------------------------------------------------------ #

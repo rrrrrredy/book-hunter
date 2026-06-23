@@ -1,12 +1,12 @@
 # book-hunter
 
-Search Z-Library and Anna's Archive for ebook download links — multi-layer automatic fallback.
+Search public ebook metadata and source pages across Z-Library and Anna's Archive — multi-layer automatic fallback.
 
 > OpenClaw Skill — works with [OpenClaw](https://github.com/openclaw/openclaw) AI agents
 
 ## What It Does
 
-Searches for ebooks across Z-Library (8 mirrors) and Anna's Archive (3 domains) with multi-layer automatic degradation: Z-Lib requests → Z-Lib Camoufox → Anna's Archive requests → Anna's Archive Jina Reader → mcporter/Exa → Jina Search API. Supports filtering by format (epub/pdf/mobi/azw3), language (zh/en), author, and ISBN. Returns metadata and download page links — no login, no file downloads, no credential storage.
+Searches public ebook metadata across Z-Library (8 mirrors) and Anna's Archive (3 domains) with multi-layer automatic degradation: Z-Lib requests → Z-Lib Camoufox → Anna's Archive requests → Anna's Archive Jina Reader → mcporter/Exa → Jina Search API. Supports filtering by format (epub/pdf/mobi/azw3), language (zh/en), author, and ISBN. Returns metadata and source pages only — no login, no file downloads, no credential storage.
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ git clone https://github.com/rrrrrredy/book-hunter.git ~/.openclaw/skills/book-h
 找书 Atomic Habits epub         # Filter by format
 搜电子书 机器学习                 # Search ebook
 图书搜索 深度学习                 # Book search
-找电子书 reinforcement learning  # Find ebook download
+找电子书 reinforcement learning  # Find ebook metadata
 搜中文机器学习书                  # Filter by language
 ISBN 9787536692930              # Exact ISBN lookup
 找 pdf 英文 LLM                 # Combined filters
@@ -58,7 +58,7 @@ book-hunter/
 - OpenClaw agent runtime
 - Python 3.8+
 - `requests`, `beautifulsoup4`, `lxml`
-- Optional: `camoufox` (for anti-scraping bypass)
+- Optional: `camoufox` (browser fallback for pages that block simple requests)
 - Optional: `mcporter` via agent-reach (for Exa fallback search)
 
 ## License

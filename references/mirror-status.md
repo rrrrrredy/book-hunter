@@ -13,14 +13,20 @@
 }
 ```
 
-## 已知镜像列表（截至 2026-04）
+## 候选镜像列表
 
-| 域名 | 状态 | 备注 |
-|------|------|------|
-| z-library.sk | 活跃 | 主镜像 |
-| z-lib.id | 活跃 | 备用 |
-| z-lib.gs | 偶发封锁 | 轮询备用 |
-| z-lib.se | 偶发封锁 | 轮询备用 |
+镜像状态随时变化，不在文档中承诺“稳定可用”。脚本会按候选列表运行时探测，并把最近一次可用结果缓存 6 小时。
+
+| 域名 | 备注 |
+|------|------|
+| z-library.sk | 候选镜像 |
+| z-library.se | 候选镜像 |
+| z-lib.id | 候选镜像 |
+| z-lib.fm | 候选镜像 |
+| 1lib.dev | 候选镜像 |
+| lib-boc.net | 候选镜像 |
+| z-library.rs | 候选镜像 |
+| z-library.gs | 候选镜像 |
 
 > ⚠️ 镜像状态随时变化，若全部 503，清除缓存文件重新探测。
 
@@ -29,7 +35,7 @@
 - 主域名：`https://annas-archive.org`
 - 备用一：`https://annas-archive.gs`
 - 备用二：`https://annas-archive.se`
-- Jina 绕过反爬：`https://r.jina.ai/https://annas-archive.org/search?q=<query>`
+- Jina Reader 文本代理：`https://r.jina.ai/https://annas-archive.org/search?q=<query>`
 
 ## Exa 兜底搜索
 

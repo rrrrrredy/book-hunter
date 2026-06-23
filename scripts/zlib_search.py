@@ -22,6 +22,18 @@ if _proxy_url:
 CACHE_FILE = os.path.expanduser("~/.book-hunter/mirrors.json")
 CACHE_TTL = 3600 * 6  # 6小时
 
+
+def _env_timeout(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+MIRROR_TIMEOUT = _env_timeout("BOOK_HUNTER_MIRROR_TIMEOUT", 2)
+SEARCH_TIMEOUT = _env_timeout("BOOK_HUNTER_SEARCH_TIMEOUT", 6)
+CAMOUFOX_TIMEOUT_MS = int(_env_timeout("BOOK_HUNTER_BROWSER_TIMEOUT", 10) * 1000)
+
 ZLIB_MIRRORS = [
     "https://z-library.sk",
     "https://z-library.se",
@@ -47,6 +59,7 @@ class ZLibSearcher:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
         self.working_mirror: Optional[str] = self._load_cached_mirror()
+        self.last_errors: list[str] = []
 
     # ------------------------------------------------------------------ #
     #  镜像缓存
@@ -74,14 +87,16 @@ class ZLibSearcher:
     def _find_working_mirror(self) -> Optional[str]:
         for mirror in ZLIB_MIRRORS:
             try:
-                resp = self.session.get(mirror, proxies=PROXY, timeout=8,
+                resp = self.session.get(mirror, proxies=PROXY, timeout=MIRROR_TIMEOUT,
                                         allow_redirects=True)
                 if resp.status_code in (200, 301, 302):
                     self._save_mirror(mirror)
                     self.working_mirror = mirror
                     return mirror
-            except Exception:
+            except Exception as e:
+                self.last_errors.append(f"{mirror}: {e}")
                 continue
+        self.last_errors.append("all configured Z-Library mirrors were unreachable")
         return None
 
     # ------------------------------------------------------------------ #
@@ -89,6 +104,7 @@ class ZLibSearcher:
     # ------------------------------------------------------------------ #
 
     def search(self, query: str, limit: int = 10) -> List[Dict]:
+        self.last_errors = []
         mirror = self.working_mirror or self._find_working_mirror()
         if not mirror:
             print("[⚠️ Z-Library] 无可用镜像，降级到 Camoufox", file=sys.stderr)
@@ -96,14 +112,16 @@ class ZLibSearcher:
 
         try:
             url = f"{mirror}/s/{quote(query)}"
-            resp = self.session.get(url, proxies=PROXY, timeout=15)
+            resp = self.session.get(url, proxies=PROXY, timeout=SEARCH_TIMEOUT)
             if resp.status_code == 200:
                 results = self._parse_html(resp.text, mirror, limit)
                 if results:
                     return results
             print(f"[⚠️ Z-Library] HTTP {resp.status_code}，降级 Camoufox", file=sys.stderr)
+            self.last_errors.append(f"{mirror}/s query returned HTTP {resp.status_code} or no parseable result")
         except Exception as e:
             print(f"[⚠️ Z-Library] requests 失败: {e}，降级 Camoufox", file=sys.stderr)
+            self.last_errors.append(f"{mirror}/s request failed: {e}")
 
         return self._search_via_camoufox(query, limit)
 
@@ -119,15 +137,17 @@ class ZLibSearcher:
             with Camoufox(headless=True,
                           proxy={"server": os.environ.get("HTTP_PROXY", "")} if os.environ.get("HTTP_PROXY") else {}) as browser:
                 page = browser.new_page()
-                page.goto(url, timeout=20000, wait_until="domcontentloaded")
+                page.goto(url, timeout=CAMOUFOX_TIMEOUT_MS, wait_until="domcontentloaded")
                 page.wait_for_timeout(1500)
                 html = page.content()
             results = self._parse_html(html, mirror, limit)
             if results:
                 return results
             print("[⚠️ Z-Library] Camoufox 解析无结果", file=sys.stderr)
+            self.last_errors.append("Camoufox loaded Z-Library page but parsed no results")
         except Exception as e:
             print(f"[⚠️ Z-Library] Camoufox 失败: {e}", file=sys.stderr)
+            self.last_errors.append(f"Camoufox failed: {e}")
         return []
 
     # ------------------------------------------------------------------ #
