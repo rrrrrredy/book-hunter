@@ -128,7 +128,7 @@ List style, IM-friendly:
 ## 镜像与代理说明
 
 - **Proxy** (optional): Set `HTTP_PROXY` env var if needed
-- **Timeouts** (optional): `BOOK_HUNTER_MIRROR_TIMEOUT`, `BOOK_HUNTER_SEARCH_TIMEOUT`, `BOOK_HUNTER_JINA_TIMEOUT`, `BOOK_HUNTER_WEB_TIMEOUT`, `BOOK_HUNTER_BROWSER_TIMEOUT`. Defaults are intentionally short for agent use; raise them only when the network is slow but reachable.
+- **Timeouts** (optional): `BOOK_HUNTER_MIRROR_TIMEOUT`, `BOOK_HUNTER_SEARCH_TIMEOUT`, `BOOK_HUNTER_JINA_TIMEOUT`, `BOOK_HUNTER_WEB_TIMEOUT`, `BOOK_HUNTER_BROWSER_TIMEOUT`, `BOOK_HUNTER_BROWSER_PROCESS_TIMEOUT`. Defaults are intentionally short for agent use; raise them only when the network is slow but reachable. Set `BOOK_HUNTER_BROWSER_ENABLED=0` for fast network diagnostics that skip Camoufox.
 - **Z-Library 镜像**：探测结果缓存 `~/.book-hunter/mirrors.json`，6小时有效，下次不重复探测
 - **Anna's Archive 域名**：annas-archive.org / .gs / .se 轮询
 - **Camoufox**: Auto-invoked when Z-Library blocks requests (pip install camoufox)

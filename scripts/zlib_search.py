@@ -10,6 +10,7 @@ import requests
 import json
 import re
 import os
+import subprocess
 import sys
 import time
 from typing import List, Dict, Optional
@@ -30,9 +31,22 @@ def _env_timeout(name: str, default: float) -> float:
         return default
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 MIRROR_TIMEOUT = _env_timeout("BOOK_HUNTER_MIRROR_TIMEOUT", 2)
 SEARCH_TIMEOUT = _env_timeout("BOOK_HUNTER_SEARCH_TIMEOUT", 6)
-CAMOUFOX_TIMEOUT_MS = int(_env_timeout("BOOK_HUNTER_BROWSER_TIMEOUT", 10) * 1000)
+CAMOUFOX_TIMEOUT = _env_timeout("BOOK_HUNTER_BROWSER_TIMEOUT", 10)
+CAMOUFOX_TIMEOUT_MS = int(CAMOUFOX_TIMEOUT * 1000)
+CAMOUFOX_PROCESS_TIMEOUT = _env_timeout(
+    "BOOK_HUNTER_BROWSER_PROCESS_TIMEOUT",
+    max(3.0, CAMOUFOX_TIMEOUT + 3.0),
+)
+CAMOUFOX_ENABLED = _env_flag("BOOK_HUNTER_BROWSER_ENABLED", True)
 
 ZLIB_MIRRORS = [
     "https://z-library.sk",
@@ -130,21 +144,43 @@ class ZLibSearcher:
     # ------------------------------------------------------------------ #
 
     def _search_via_camoufox(self, query: str, limit: int) -> List[Dict]:
+        if not CAMOUFOX_ENABLED:
+            self.last_errors.append("Camoufox browser fallback disabled by BOOK_HUNTER_BROWSER_ENABLED=0")
+            return []
+
         mirror = self.working_mirror or "https://z-library.sk"
         try:
-            from camoufox.sync_api import Camoufox
-            url = f"{mirror}/s/{quote(query)}"
-            with Camoufox(headless=True,
-                          proxy={"server": os.environ.get("HTTP_PROXY", "")} if os.environ.get("HTTP_PROXY") else {}) as browser:
-                page = browser.new_page()
-                page.goto(url, timeout=CAMOUFOX_TIMEOUT_MS, wait_until="domcontentloaded")
-                page.wait_for_timeout(1500)
-                html = page.content()
-            results = self._parse_html(html, mirror, limit)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    os.path.abspath(__file__),
+                    "--camoufox-worker",
+                    query,
+                    mirror,
+                    str(limit),
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=CAMOUFOX_PROCESS_TIMEOUT,
+                env={**os.environ, "PYTHONUTF8": "1"},
+                shell=False,
+            )
+            if result.returncode != 0:
+                stderr = (result.stderr or result.stdout or "").strip()
+                self.last_errors.append(f"Camoufox worker failed: {stderr[:300] or 'unknown error'}")
+                print(f"[⚠️ Z-Library] Camoufox 失败: {stderr[:200] or 'unknown error'}", file=sys.stderr)
+                return []
+
+            results = json.loads(result.stdout or "[]")
             if results:
                 return results
             print("[⚠️ Z-Library] Camoufox 解析无结果", file=sys.stderr)
             self.last_errors.append("Camoufox loaded Z-Library page but parsed no results")
+        except subprocess.TimeoutExpired:
+            print(f"[⚠️ Z-Library] Camoufox 超时（{CAMOUFOX_PROCESS_TIMEOUT}s）", file=sys.stderr)
+            self.last_errors.append(f"Camoufox timed out after {CAMOUFOX_PROCESS_TIMEOUT}s")
         except Exception as e:
             print(f"[⚠️ Z-Library] Camoufox 失败: {e}", file=sys.stderr)
             self.last_errors.append(f"Camoufox failed: {e}")
@@ -247,3 +283,26 @@ class ZLibSearcher:
             results = [r for r in results if author_filter.lower() in r["author"].lower()]
 
         return results[:limit]
+
+
+def _camoufox_worker(query: str, mirror: str, limit: int) -> int:
+    from camoufox.sync_api import Camoufox
+
+    url = f"{mirror}/s/{quote(query)}"
+    proxy = {"server": os.environ.get("HTTP_PROXY", "")} if os.environ.get("HTTP_PROXY") else {}
+    with Camoufox(headless=True, proxy=proxy) as browser:
+        page = browser.new_page()
+        page.goto(url, timeout=CAMOUFOX_TIMEOUT_MS, wait_until="domcontentloaded")
+        page.wait_for_timeout(min(1500, CAMOUFOX_TIMEOUT_MS))
+        html = page.content()
+
+    results = ZLibSearcher()._parse_html(html, mirror, limit)
+    print(json.dumps(results, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 5 and sys.argv[1] == "--camoufox-worker":
+        raise SystemExit(_camoufox_worker(sys.argv[2], sys.argv[3], int(sys.argv[4])))
+    print("zlib_search.py is a support module. Use book_hunter.py for CLI search.", file=sys.stderr)
+    raise SystemExit(2)

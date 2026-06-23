@@ -53,6 +53,12 @@ HAS_MCPORTER = MCPORTER_CMD is not None
 WEB_SEARCH_TIMEOUT = _env_timeout("BOOK_HUNTER_WEB_TIMEOUT", 8)
 
 
+def _diagnostic_sample(messages: List[str], limit: int = 4) -> List[str]:
+    if len(messages) <= limit:
+        return messages
+    return messages[:limit - 1] + [messages[-1]]
+
+
 class BookHunter:
 
     def __init__(self):
@@ -89,14 +95,18 @@ class BookHunter:
         results["zlib_results"] = self.zlib.search_with_filters(
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, limit=limit)
-        results["diagnostics"].extend(f"Z-Library: {msg}" for msg in self.zlib.last_errors[:4])
+        results["diagnostics"].extend(
+            f"Z-Library: {msg}" for msg in _diagnostic_sample(self.zlib.last_errors, 5)
+        )
 
         # 2. Anna's Archive（含 Jina 降级）
         print(f"[Anna's Archive] 搜索: {query}...", file=sys.stderr)
         results["anna_results"] = self.anna.search_with_filters(
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, isbn=isbn, limit=limit)
-        results["diagnostics"].extend(f"Anna's Archive: {msg}" for msg in self.anna.last_errors[:4])
+        results["diagnostics"].extend(
+            f"Anna's Archive: {msg}" for msg in _diagnostic_sample(self.anna.last_errors, 5)
+        )
 
         # 3. 两站都没结果 → Exa/Web Search 终极降级
         if not results["zlib_results"] and not results["anna_results"]:
