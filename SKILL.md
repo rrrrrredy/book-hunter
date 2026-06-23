@@ -1,11 +1,11 @@
 ---
 name: book-hunter
-description: 'Search public ebook metadata and source pages across Z-Library, Anna''s Archive, and web-search fallbacks. Supports title/author/ISBN queries, format (epub/pdf/mobi) and language (zh/en) filters, and bounded fallback when mirrors fail. Triggers: search books, find ebook metadata, book search, search ebook, zlib, anna, ISBN search. Not for: purchasing physical books; internal document search; bypassing paywalls, DRM, logins, or copyright restrictions; downloading files for the user.'
+description: 'Search public book/ebook metadata and source pages across Z-Library, Anna''s Archive, Internet Archive public catalog metadata, and web-search fallbacks. Supports title/author/ISBN queries, format (epub/pdf/mobi) and language (zh/en) filters, and bounded fallback when mirrors fail. Triggers: search books, find ebook metadata, book search, search ebook, public book metadata, zlib, anna, ISBN search. Not for: purchasing physical books; internal document search; bypassing paywalls, DRM, logins, or copyright restrictions; downloading files for the user.'
 ---
 
 # 图书猎手 4.0.0
 
-**一句话查询 Z-Library + Anna's Archive 的公开图书元数据和来源页面。** 8 镜像 + Camoufox + Jina + Exa 四层降级，失败时要明确报告原因。
+**一句话查询公开图书元数据和来源页面。** Z-Library/Anna's Archive 候选来源页 + Internet Archive 公开目录元数据 + web search 兜底，失败时要明确报告原因。
 
 ---
 
@@ -93,6 +93,8 @@ Anna's Archive（requests + 上游代理，多域名轮询）
     ↓ 反爬 / 被封
 Anna's Archive（Jina Reader r.jina.ai 文本代理）
     ↓ 两站均失败
+Internet Archive public catalog metadata（只返回目录页，不验证具体文件格式）
+    ↓ 公开目录也无结果
 mcporter/Exa (agent-reach ecosystem) → Jina Search API fallback
     ↓ 无结果
 提示用户直接访问来源页 + 建议关键词调整
@@ -106,7 +108,7 @@ List style, IM-friendly:
 
 ```
 📚 图书猎手 — 「三体」
-找到 8 本（Z-Lib 5 + Anna 3 + Exa 0）
+找到 8 本（Z-Lib 5 + Anna 2 + Public Catalog 1 + Exa 0）
 
 ━━ Z-Library（5本）━━
 1. 《三体》
@@ -128,9 +130,10 @@ List style, IM-friendly:
 ## 镜像与代理说明
 
 - **Proxy** (optional): Set `HTTP_PROXY` env var if needed
-- **Timeouts** (optional): `BOOK_HUNTER_MIRROR_TIMEOUT`, `BOOK_HUNTER_SEARCH_TIMEOUT`, `BOOK_HUNTER_JINA_TIMEOUT`, `BOOK_HUNTER_WEB_TIMEOUT`, `BOOK_HUNTER_BROWSER_TIMEOUT`, `BOOK_HUNTER_BROWSER_PROCESS_TIMEOUT`. Defaults are intentionally short for agent use; raise them only when the network is slow but reachable. Set `BOOK_HUNTER_BROWSER_ENABLED=0` for fast network diagnostics that skip Camoufox.
+- **Timeouts** (optional): `BOOK_HUNTER_MIRROR_TIMEOUT`, `BOOK_HUNTER_SEARCH_TIMEOUT`, `BOOK_HUNTER_JINA_TIMEOUT`, `BOOK_HUNTER_CATALOG_TIMEOUT`, `BOOK_HUNTER_WEB_TIMEOUT`, `BOOK_HUNTER_BROWSER_TIMEOUT`, `BOOK_HUNTER_BROWSER_PROCESS_TIMEOUT`. Defaults are intentionally short for agent use; raise them only when the network is slow but reachable. Set `BOOK_HUNTER_BROWSER_ENABLED=0` for fast network diagnostics that skip Camoufox.
 - **Z-Library 镜像**：探测结果缓存 `~/.book-hunter/mirrors.json`，6小时有效，下次不重复探测
 - **Anna's Archive 域名**：annas-archive.org / .gs / .se 轮询
+- **Internet Archive public catalog**：公开目录元数据 fallback；不验证 EPUB/PDF/MOBI 可用性，遇到 `--format` 筛选会跳过并报告原因
 - **Camoufox**: Auto-invoked when Z-Library blocks requests (pip install camoufox)
 
 > 镜像缓存格式、完整域名列表及 Exa 兜底机制详见 `references/mirror-status.md`。
@@ -143,7 +146,7 @@ List style, IM-friendly:
 pip install requests beautifulsoup4 lxml camoufox
 ```
 
-Web search fallback: **mcporter/Exa** (agent-reach ecosystem, best results) → **Jina Search API** (free, no key). Install: `pip install agent-reach && agent-reach install --env=auto --safe` then `npm i -g mcporter && mcporter config add exa https://mcp.exa.ai/mcp`
+Public catalog fallback uses Internet Archive's public metadata API. Web search fallback: **mcporter/Exa** (agent-reach ecosystem, best results) → **Jina Search API** (free, no key). Install: `pip install agent-reach && agent-reach install --env=auto --safe` then `npm i -g mcporter && mcporter config add exa https://mcp.exa.ai/mcp`
 
 ---
 
@@ -156,6 +159,10 @@ Web search fallback: **mcporter/Exa** (agent-reach ecosystem, best results) → 
 ⚠️ Camoufox 启动失败（`ModuleNotFoundError`）→ 需先 `pip install camoufox` 并运行 `python3 -m camoufox fetch` 下载浏览器二进制，缺少这一步会直接报错
 
 ⚠️ Anna's Archive 三个域名（.org/.gs/.se）均不可达 → Jina Reader 文本代理：`r.jina.ai/https://annas-archive.org/...`，但 Jina 有速率限制，不要连续大量请求
+
+⚠️ Internet Archive 返回标题噪音 → 公开目录只用于书目存在性验证；短中文标题要求精确匹配，宁可返回 0，也不要把同人/二创/不相关标题当作目标书。
+
+⚠️ 带 `--format epub/pdf/mobi/azw3` 时公开目录无结果 → 这是预期行为；公开目录不验证具体文件格式，不应假装满足格式筛选。
 
 ⚠️ Exa 兜底搜索返回无关结果 → Exa 是通用搜索，不专精图书；结果质量差时应告知用户手动搜索，不要把低质量结果当作答案返回
 
@@ -191,6 +198,7 @@ Remove-Item -ErrorAction SilentlyContinue "$HOME\.book-hunter\mirrors.json"
 
 - 仅搜索元数据和来源页面，**不登录不下载不存储凭证**
 - 不代表用户绕过付费、DRM、登录门槛或版权限制
+- Public Catalog 结果只证明公开目录中存在相关书目，不证明可下载或存在指定电子书格式
 - 部分来源页面可能失效、被封锁或需要用户自行判断合法性
 - 请遵守当地版权法律法规
 

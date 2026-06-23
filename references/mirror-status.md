@@ -42,3 +42,11 @@
 通过 mcporter 调用：`mcporter call exa.web_search_exa "site:z-library OR site:annas-archive <书名>"`
 
 Exa 返回结果是通用搜索，质量不保证，仅作最后兜底。
+
+## Internet Archive public catalog
+
+- API: `https://archive.org/advancedsearch.php`
+- Purpose: stable public catalog metadata/source-page fallback when Z-Library and Anna's Archive are unreachable.
+- Boundary: returns `https://archive.org/details/<identifier>` source pages only; do not fetch or expose downloadable files.
+- Format filters: skip this fallback when the user requests a concrete file format (`--format epub/pdf/mobi/azw3`) because catalog metadata does not reliably verify file availability.
+- Relevance guard: for short CJK queries, require exact title matches to avoid noisy fan-fiction or unrelated title matches.

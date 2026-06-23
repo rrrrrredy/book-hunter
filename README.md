@@ -1,12 +1,12 @@
 # book-hunter
 
-Search public ebook metadata and source pages across Z-Library and Anna's Archive — multi-layer automatic fallback.
+Search public book/ebook metadata and source pages across Z-Library, Anna's Archive, Internet Archive public catalog metadata, and web-search fallbacks.
 
 > OpenClaw Skill — works with [OpenClaw](https://github.com/openclaw/openclaw) AI agents
 
 ## What It Does
 
-Searches public ebook metadata across Z-Library (8 mirrors) and Anna's Archive (3 domains) with multi-layer automatic degradation: Z-Lib requests → Z-Lib Camoufox → Anna's Archive requests → Anna's Archive Jina Reader → mcporter/Exa → Jina Search API. Supports filtering by format (epub/pdf/mobi/azw3), language (zh/en), author, and ISBN. Returns metadata and source pages only — no login, no file downloads, no credential storage.
+Searches public book/ebook metadata across Z-Library (8 mirrors), Anna's Archive (3 domains), Internet Archive public catalog metadata, and web search fallbacks with multi-layer automatic degradation: Z-Lib requests → Z-Lib Camoufox → Anna's Archive requests → Anna's Archive Jina Reader → Internet Archive public catalog → mcporter/Exa → Jina Search API. Supports filtering by format (epub/pdf/mobi/azw3), language (zh/en), author, and ISBN. Returns metadata and source pages only — no login, no file downloads, no credential storage.
 
 ## Quick Start
 
@@ -18,8 +18,8 @@ git clone https://github.com/rrrrrredy/book-hunter.git ~/.openclaw/skills/book-h
 
 ## Features
 
-- 📚 **Dual-source Search** — Z-Library (8 mirrors) + Anna's Archive (3 domains)
-- 🔄 **Multi-layer Fallback** — Z-Lib requests → Z-Lib Camoufox → Anna requests → Anna Jina Reader → mcporter/Exa → Jina Search API
+- 📚 **Multi-source Search** — Z-Library (8 mirrors) + Anna's Archive (3 domains) + Internet Archive public catalog
+- 🔄 **Multi-layer Fallback** — Z-Lib requests → Z-Lib Camoufox → Anna requests → Anna Jina Reader → Internet Archive public catalog → mcporter/Exa → Jina Search API
 - 🎯 **Precise Filtering** — By format, language, author, or ISBN
 - 🪞 **Mirror Auto-detection** — Probes and caches working Z-Lib mirrors (6h TTL)
 - 🔒 **Safe by Design** — Metadata search only; no login, no downloads, no credentials
@@ -47,6 +47,7 @@ book-hunter/
 ├── scripts/
 │   ├── book_hunter.py
 │   ├── anna_search.py
+│   ├── public_catalog_search.py
 │   ├── zlib_search.py
 │   └── setup.sh
 └── references/

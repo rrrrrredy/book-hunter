@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from zlib_search import ZLibSearcher
 from anna_search import AnnaSearcher
+from public_catalog_search import PublicCatalogSearcher
 
 
 def _configure_stdio() -> None:
@@ -64,6 +65,7 @@ class BookHunter:
     def __init__(self):
         self.zlib = ZLibSearcher()
         self.anna = AnnaSearcher()
+        self.catalog = PublicCatalogSearcher()
         self._exa_errors: list[str] = []
 
     # ------------------------------------------------------------------ #
@@ -85,6 +87,7 @@ class BookHunter:
             "author_filter": author_filter or "",
             "zlib_results": [],
             "anna_results": [],
+            "catalog_results": [],
             "exa_results": [],
             "diagnostics": [],
             "total": 0,
@@ -96,7 +99,7 @@ class BookHunter:
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, limit=limit)
         results["diagnostics"].extend(
-            f"Z-Library: {msg}" for msg in _diagnostic_sample(self.zlib.last_errors, 5)
+            f"Z-Library: {msg}" for msg in _diagnostic_sample(self.zlib.last_errors, 3)
         )
 
         # 2. Anna's Archive（含 Jina 降级）
@@ -105,17 +108,29 @@ class BookHunter:
             query, format_filter=format_filter, lang_filter=lang_filter,
             author_filter=author_filter, isbn=isbn, limit=limit)
         results["diagnostics"].extend(
-            f"Anna's Archive: {msg}" for msg in _diagnostic_sample(self.anna.last_errors, 5)
+            f"Anna's Archive: {msg}" for msg in _diagnostic_sample(self.anna.last_errors, 3)
         )
 
-        # 3. 两站都没结果 → Exa/Web Search 终极降级
+        # 3. 两站都没结果 → public catalog metadata fallback
         if not results["zlib_results"] and not results["anna_results"]:
-            print("[降级搜索] 两站无结果，启动 Exa/Web Search...", file=sys.stderr)
+            print("[公开目录] 两站无结果，查询 Internet Archive 公开目录元数据...", file=sys.stderr)
+            results["catalog_results"] = self.catalog.search_with_filters(
+                query, format_filter, lang_filter, author_filter, isbn, limit)
+            results["diagnostics"].extend(
+                f"Public catalog: {msg}" for msg in _diagnostic_sample(self.catalog.last_errors, 4)
+            )
+
+        # 4. 公开目录也没结果 → Exa/Web Search 终极降级
+        if not results["zlib_results"] and not results["anna_results"] and not results["catalog_results"]:
+            print("[降级搜索] 公开目录无结果，启动 Exa/Web Search...", file=sys.stderr)
             self._exa_errors = []
             results["exa_results"] = self._search_exa(query, limit)
             results["diagnostics"].extend(f"Web fallback: {msg}" for msg in self._exa_errors[:3])
 
-        all_books = (results["zlib_results"] + results["anna_results"]
+        for key in ("zlib_results", "anna_results", "catalog_results", "exa_results"):
+            results[key] = self._deduplicate(results[key])
+
+        all_books = (results["zlib_results"] + results["anna_results"] + results["catalog_results"]
                      + results["exa_results"])
         results["total"] = len(self._deduplicate(all_books))
 
@@ -219,7 +234,8 @@ class BookHunter:
         query = results["query"]
         isbn = results.get("isbn")
         all_books = self._deduplicate(
-            results["zlib_results"] + results["anna_results"] + results["exa_results"]
+            results["zlib_results"] + results["anna_results"]
+            + results["catalog_results"] + results["exa_results"]
         )
 
         # 标题
@@ -238,7 +254,11 @@ class BookHunter:
         if filters:
             lines.append("筛选: " + " | ".join(filters))
 
-        lines.append(f"找到 {len(all_books)} 本（Z-Lib {len(results['zlib_results'])} + Anna {len(results['anna_results'])} + Exa {len(results['exa_results'])}）")
+        lines.append(
+            f"找到 {len(all_books)} 本（Z-Lib {len(results['zlib_results'])} + "
+            f"Anna {len(results['anna_results'])} + Public Catalog {len(results['catalog_results'])} + "
+            f"Exa {len(results['exa_results'])}）"
+        )
         lines.append("")
 
         if not all_books:
@@ -246,21 +266,24 @@ class BookHunter:
             diagnostics = [d for d in results.get("diagnostics", []) if d]
             if diagnostics:
                 lines.append("状态：所有来源未返回可用结果；下列诊断更像网络/镜像/解析失败时，不代表图书一定不存在。")
-                for item in diagnostics[:6]:
+                for item in diagnostics[:10]:
                     lines.append(f"• {item}")
             lines.append("")
             lines.append("建议：")
             lines.append("• 检查拼写，或尝试英文关键词")
             lines.append("• 搜书 --format epub --lang en 《书名》")
-            lines.append("• 直接访问 annas-archive.org 来源页（可能需要代理）")
+            lines.append("• 不带格式筛选重试，以便查询公开目录元数据")
+            lines.append("• 直接访问 annas-archive.org 或 archive.org 来源页（可能需要代理）")
             return "\n".join(lines)
 
         # 按来源分组输出
         for source_name, source_books in [
             ("Z-Library", results["zlib_results"]),
             ("Anna's Archive", results["anna_results"]),
+            ("Public Catalog", results["catalog_results"]),
             ("Exa 搜索结果", results["exa_results"]),
         ]:
+            source_books = self._deduplicate(source_books)
             if not source_books:
                 continue
             lines.append(f"━━ {source_name} ({len(source_books)}本) ━━")
